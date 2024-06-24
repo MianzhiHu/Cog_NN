@@ -100,6 +100,8 @@ class LSTM_Fitting():
                         loss.backward()
 
                         on_policy_loss = loss.item()
+                        if on_policy_loss is None:
+                            raise ValueError('The model did not converge!')
                         losses.append(on_policy_loss)
 
                         optimizer.step()
