@@ -1,7 +1,7 @@
 import pandas as pd
 import torch
 import pickle
-from LSTM import LSTM_Fitting, encode_trial_type
+from LSTM import LSTM_Fitting, encode_trial_type, find_best_choice, find_trial_type
 
 # =============================================================================
 # Load the data
@@ -83,6 +83,11 @@ for i in range(len(dataframes_2019)):
         dataframes_2019[i].loc[dataframes_2019[i]['trial_index'] > 150, 'RewardSeen'] = 0
         dataframes_2019[i].loc[dataframes_2019[i]['RewardSeen'] == 0, 'reward'] = 0
 
+    if i > 0:
+        # participants in the 1st and 2nd dataset completed 50 trials in which they can pick from all 4 options
+        # these trials are not of our interest
+        dataframes_2019[i] = dataframes_2019[i][dataframes_2019[i]['TrialType'] != 7]
+
 # =============================================================================
 # Prepare the ABCD data initially published in Don et al. (2022)
 # IMPORTANT: This dataset is not being used because the ABCD task was significantly modified
@@ -147,6 +152,14 @@ features = padded_sequences[:, :, :]
 targets = padded_sequences[:, :, -4:]
 mask = padded_sequences[:, :, 2:6]
 
+# check if there are any NaN values
+if torch.isnan(features).any() or torch.isnan(targets).any() or torch.isnan(mask).any():
+    raise ValueError('There are NaN values in the data!')
+
+# check for infinite values (very unlikely)
+if torch.isinf(features).any() or torch.isinf(targets).any() or torch.isinf(mask).any():
+    raise ValueError('There are infinite values in the data!')
+
 print(f'Data preparation has been completed!')
 print(f'We have {num_participants} participants, {max_len} trials per participant, and {features.shape[2]} features.')
 
@@ -156,12 +169,13 @@ print(f'We have {num_participants} participants, {max_len} trials per participan
 # Define the model
 model = LSTM_Fitting(n_layers=[1, 2, 3, 4, 5], n_nodes=[5, 10, 20, 50, 100],
                      n_epochs=[100, 200, 400, 600, 800, 1000, 1200],
-                     batch_size=[1, 5, 10])
-result, MSE, weights, x = model.fit(features, targets, mask)
-best_result, _, _, _, _ = model.find_best_configuration(result=result, standard='MSE')
+                     batch_size=[1, 5, 10, 20])
+result, MSE, weights = model.fit(features, targets, mask)
+best_result, _, _, _, = model.find_best_configuration(result=result, standard='MSE')
 
 result_path = './Results/AllResults/'
 best_result_path = './Results/BestResults/'
 
-with open(result_path + 'HV.pkl', 'wb') as f:
+with open(result_path + 'ABCD.pkl', 'wb') as f:
     pickle.dump(result, f)
+

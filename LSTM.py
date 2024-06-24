@@ -93,6 +93,7 @@ class LSTM_Fitting():
                         y_batch = y_train[batch_indices].float()
                         mask_batch = mask_train[batch_indices].float()
 
+                        # set up the optimizer
                         optimizer.zero_grad()
                         output = model(X_batch, mask_batch)
                         loss = criterion(output[:, :-lag], y_batch[:, lag:])
@@ -163,7 +164,7 @@ class LSTM_Fitting():
             MSE_dict[(n_layers, n_nodes, n_epochs, batch_size)] = MSEloss
             weights_dict[(n_layers, n_nodes, n_epochs, batch_size)] = weights_full
 
-        return results_dict, MSE_dict, weights_dict, participant_indices
+        return results_dict, MSE_dict, weights_dict
 
     def find_best_configuration(self, result, standard='MSE', print_results=True):
         # initialize the best configuration
