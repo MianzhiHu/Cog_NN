@@ -178,8 +178,11 @@ if __name__ == '__main__':
     result, MSE, weights = model.fit(ABCD_features, ABCD_targets, ABCD_mask)
     best_result, _, _, _, _ = model.find_best_configuration(result=result, standard='MSE')
 
-    # result_path = './Results/AllResults/'
-    # best_result_path = './Results/BestResults/'
-    #
-    # with open(result_path + 'ABCD.pkl', 'wb') as f:
-    #     pickle.dump(result, f)
+    result_path = './Results/AllResults/'
+    best_result_path = './Results/BestResults/'
+
+    with open(result_path + 'ABCD.pkl', 'wb') as f:
+        pickle.dump(result, f)
+
+    with open(best_result_path + 'ABCD_best.pkl', 'wb') as f:
+        pickle.dump(best_result, f)
