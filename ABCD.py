@@ -168,13 +168,11 @@ if __name__ == '__main__':
     # The LSTM model fitting starts here
     # =============================================================================
 
-    # # Define the model
-    # model = LSTM_Fitting(n_layers=[1, 2, 3, 4, 5], n_nodes=[5, 10, 20, 50, 100],
-    #                      n_epochs=[100, 200, 400, 600, 800, 1000, 1200],
-    #                      batch_size=[1, 5, 10, 20])
-    model = LSTM_Fitting(n_layers=[1], n_nodes=[5],
-                         n_epochs=[10, 20, 30],
-                         batch_size=[40])
+    # Define the model
+    model = LSTM_Fitting(n_layers=[1, 2, 3, 4, 5], n_nodes=[5, 10, 20, 50, 100],
+                         n_epochs=[100, 200, 400, 600, 800, 1000, 1200],
+                         batch_size=[2, 4, 8, 16, 32, 64])
+
     result, MSE, weights = model.fit(ABCD_features, ABCD_targets, ABCD_mask)
     best_result, _, _, _, _ = model.find_best_configuration(result=result, standard='MSE')
 
