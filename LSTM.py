@@ -6,6 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error
 from itertools import product
+from multiprocessing import Pool, cpu_count
 
 
 # define the LSTM model
@@ -27,6 +28,119 @@ class LSTM(nn.Module):
         return out
 
 
+def train_configuration(config, features, targets, mask, output_dim, n_folds, lag, iteration, total_configs):
+    n_layers, n_nodes, n_epochs, batch_size = config
+    print(f'Current Configuration [{iteration}/{total_configs}]:')
+    print(
+        f'Number of Layers: {n_layers}, Number of Nodes: {n_nodes}, Number of Epochs: {n_epochs}, Batch Size: {batch_size}')
+
+    model = LSTM(features.shape[2], n_nodes, output_dim, n_layers)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+
+    # Temporary DataFrame for current configuration
+    LSTM_result = pd.DataFrame()
+
+    # Store loss for epoch losses
+    total_losses = []
+
+    # split the data into n_folds
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+
+    # iterate over the folds
+    for fold, (train_index, test_index) in enumerate(kf.split(features)):
+        # split the data
+        X_train, X_test = features[train_index], features[test_index]
+        y_train, y_test = targets[train_index], targets[test_index]
+        mask_train, mask_test = mask[train_index], mask[test_index]
+
+        for epoch in np.arange(n_epochs):
+
+            print(f'[{iteration}/{total_configs}] Processing epoch {epoch + 1} / {n_epochs}')
+            epoch_losses = []  # Reset epoch_losses at the start of each epoch
+
+            # randomize the order of the participants
+            participant_indices = np.random.permutation(X_train.shape[0])
+
+            for i in range(0, len(participant_indices), batch_size):
+                batch_indices = participant_indices[i:i + batch_size]
+
+                X_batch = X_train[batch_indices].float()
+                y_batch = y_train[batch_indices].float()
+                mask_batch = mask_train[batch_indices].float()
+
+                optimizer.zero_grad()
+                output = model(X_batch, mask_batch)
+                loss = criterion(output[:, :-lag], y_batch[:, lag:])
+                loss.backward()
+
+                optimizer.step()
+
+                on_policy_loss = loss.item()
+
+                if on_policy_loss is None:
+                    raise ValueError('The model did not converge!')
+
+                epoch_losses.append(on_policy_loss)
+
+                optimizer.step()
+
+            # Average loss for this epoch
+            avg_epoch_loss = np.mean(epoch_losses)
+            total_losses.append(avg_epoch_loss)
+
+        model_eval = model.eval()
+        y_pred = model_eval(X_test, mask_test).data.cpu().numpy()
+        weights = weight_storing(model)
+
+        if fold == 0:
+            test_set_full = y_test
+            pred_set_full = y_pred
+            # MSEloss = epoch_losses
+            weights_full = weights
+        else:
+            test_set_full = np.concatenate((test_set_full, y_test), axis=0)
+            pred_set_full = np.concatenate((pred_set_full, y_pred), axis=0)
+            # MSEloss = np.concatenate((MSEloss, total_losses), axis=0)
+            weights_full = pd.concat([weights_full, weights], axis=0)
+
+    # =============================================================================
+    # The model fitting process ends here
+    # =============================================================================
+
+    # convert the results back to the original format
+    for results in [test_set_full, pred_set_full]:
+        participant = []
+        trial_index = []
+        outcome = []
+        for i in range(results.shape[0]):
+            for j in range(results.shape[1]):
+                participant.append(i)
+                trial_index.append(j)
+                outcome.append(results[i, j])
+
+        # create a df for the current fold
+        fold_results = pd.DataFrame(
+            {'Subnum': participant, 'trial_index': trial_index, 'real_y': outcome})
+
+        if LSTM_result.empty:
+            LSTM_result = fold_results
+        else:
+            LSTM_result = pd.merge(LSTM_result,
+                                   pd.DataFrame({'Subnum': participant, 'trial_index': trial_index,
+                                                 'pred_y': outcome}), on=['Subnum', 'trial_index'])
+
+    # now, get the trial type first
+    LSTM_result['TrialType'] = LSTM_result['pred_y'].apply(find_trial_type)
+
+    # get people's actual choices, as well as the predicted choices
+    LSTM_result['bestOption'] = LSTM_result.apply(find_best_choice, axis=1, target_variable='real_y')
+    LSTM_result['pred_bestOption'] = LSTM_result.apply(find_best_choice, axis=1,
+                                                       target_variable='pred_y')
+
+    return config, LSTM_result, total_losses, weights_full
+
+
 class LSTM_Fitting():
     def __init__(self, n_layers, n_nodes, n_epochs, batch_size):
         self.param_grid = {
@@ -37,147 +151,37 @@ class LSTM_Fitting():
         }
 
     def fit(self, features, targets, mask, n_folds=5, output_dim=4):
-        # define unchangeable parameters
-        lag = 1  # the model prediction starts from the second trial
+        lag = 1
         n_folds = n_folds
-        iteration = 0
 
-        # initialize dictionaries to store the results
         results_dict = {}
         MSE_dict = {}
         weights_dict = {}
 
-        # define the model
-        for n_nodes, n_layers, n_epochs, batch_size in product(self.param_grid['n_nodes'],
-                                                               self.param_grid['n_layers'],
-                                                               self.param_grid['n_epochs'],
-                                                               self.param_grid['batch_size']):
-            iteration += 1
+        configurations = list(product(self.param_grid['n_layers'],
+                                      self.param_grid['n_nodes'],
+                                      self.param_grid['n_epochs'],
+                                      self.param_grid['batch_size']))
 
-            print('Iteration [{}/{}]'.format(iteration, len(list(product(self.param_grid['n_nodes'],
-                                                                         self.param_grid['n_layers'],
-                                                                         self.param_grid['n_epochs'],
-                                                                         self.param_grid['batch_size'])))))
-            print('Current Configuration:')
-            print(f'Number of Layers: {n_layers}, Number of Nodes: {n_nodes}, Number of Epochs: {n_epochs}, '
-                  f'Batch Size: {batch_size}')
+        total_configs = len(configurations)
 
-            model = LSTM(features.shape[2], n_nodes, output_dim, n_layers)
-            criterion = nn.MSELoss()
-            optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
-
-            # Temporary DataFrame for current configuration
-            LSTM_result = pd.DataFrame()
-
-            # split the data into n_folds
-            kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
-
-            # iterate over the folds
-            for fold, (train_index, test_index) in enumerate(kf.split(features)):
-                # split the data
-                X_train, X_test = features[train_index], features[test_index]
-                y_train, y_test = targets[train_index], targets[test_index]
-                mask_train, mask_test = mask[train_index], mask[test_index]
-
-                losses = []
-
-                for epoch in np.arange(n_epochs):
-                    # randomize the order of the participants
-                    participant_indices = np.random.permutation(X_train.shape[0])
-
-                    for i in range(0, len(participant_indices), batch_size):
-                        batch_indices = participant_indices[i:i + batch_size]
-
-                        # Ensure to not break the sequence for each participant
-                        X_batch = X_train[batch_indices].float()
-                        y_batch = y_train[batch_indices].float()
-                        mask_batch = mask_train[batch_indices].float()
-
-                        # set up the optimizer
-                        optimizer.zero_grad()
-                        output = model(X_batch, mask_batch)
-                        loss = criterion(output[:, :-lag], y_batch[:, lag:])
-                        loss.backward()
-
-                        on_policy_loss = loss.item()
-
-                        if on_policy_loss is None:
-                            raise ValueError('The model did not converge!')
-
-                        losses.append(on_policy_loss)
-
-                        optimizer.step()
-
-                        # print the number of folds
-                        if i % 10 == 0:
-                            print(f'Fold: {fold + 1}/{n_folds}')
-                            print('Epoch[{}/{}], Batch[{}/{}], Loss: {:.5f}'.format(
-                                epoch + 1, n_epochs, (i / 10) + 1, X_train.shape[0] / batch_size, on_policy_loss))
-
-                # evaluate
-                model_eval = model.eval()
-                y_pred = model_eval(X_test, mask_test).data.cpu().numpy()
-                weights = weight_storing(model)
-
-                if fold == 0:
-                    test_set_full = y_test
-                    pred_set_full = y_pred
-                    MSEloss = losses
-                    weights_full = weights
-                else:
-                    test_set_full = np.concatenate((test_set_full, y_test), axis=0)
-                    pred_set_full = np.concatenate((pred_set_full, y_pred), axis=0)
-                    MSEloss = np.concatenate((MSEloss, losses), axis=0)
-                    weights_full = pd.concat([weights_full, weights], axis=0)
-
-            # =============================================================================
-            # The model fitting process ends here
-            # =============================================================================
-
-            # convert the results back to the original format
-            for results in [test_set_full, pred_set_full]:
-                participant = []
-                trial_index = []
-                outcome = []
-                for i in range(results.shape[0]):
-                    for j in range(results.shape[1]):
-                        participant.append(i)
-                        trial_index.append(j)
-                        outcome.append(results[i, j])
-
-                # create a df for the current fold
-                fold_results = pd.DataFrame(
-                    {'Subnum': participant, 'trial_index': trial_index, 'real_y': outcome})
-
-                if LSTM_result.empty:
-                    LSTM_result = fold_results
-                else:
-                    LSTM_result = pd.merge(LSTM_result,
-                                           pd.DataFrame({'Subnum': participant, 'trial_index': trial_index,
-                                                         'pred_y': outcome}), on=['Subnum', 'trial_index'])
-
-            # now, get the trial type first
-            LSTM_result['TrialType'] = LSTM_result['pred_y'].apply(find_trial_type)
-
-            # get people's actual choices, as well as the predicted choices
-            LSTM_result['bestOption'] = LSTM_result.apply(find_best_choice, axis=1, target_variable='real_y')
-            LSTM_result['pred_bestOption'] = LSTM_result.apply(find_best_choice, axis=1,
-                                                               target_variable='pred_y')
-
-            results_dict[(n_layers, n_nodes, n_epochs, batch_size)] = LSTM_result
-            MSE_dict[(n_layers, n_nodes, n_epochs, batch_size)] = MSEloss
-            weights_dict[(n_layers, n_nodes, n_epochs, batch_size)] = weights_full
+        with Pool(cpu_count()) as pool:
+            for i, result in enumerate(pool.starmap(train_configuration, [
+                (config, features, targets, mask, output_dim, n_folds, lag, i + 1, total_configs) for i, config in
+                    enumerate(configurations)])):
+                config, LSTM_result, avg_MSE, weights_full = result
+                results_dict[config] = LSTM_result
+                MSE_dict[config] = avg_MSE
+                weights_dict[config] = weights_full
 
         return results_dict, MSE_dict, weights_dict
 
     def find_best_configuration(self, result, standard='MSE', print_results=True):
-        # initialize the best configuration
         best_MSE = 1000
         best_MAE = 1000
         best_percent_correct = 0
         best_config = None
 
-        # calculate the metrics for each configuration
         for key, value in result.items():
             value['squared_error'] = (value['bestOption'] - value['pred_bestOption']) ** 2
             value['absolute_error'] = np.abs(value['bestOption'] - value['pred_bestOption'])
@@ -188,7 +192,8 @@ class LSTM_Fitting():
             percent_correct = value['correct_pred'].mean()
             if print_results:
                 print(
-                    f'Number of Layers: {key[0]}, Number of Nodes: {key[1]}, Number of Epochs: {key[2]}, Batch Size: {key[3]}')
+                    f'Number of Layers: {key[0]}, Number of Nodes: {key[1]}, '
+                    f'Number of Epochs: {key[2]}, Batch Size: {key[3]}')
                 print(f'MSE: {MSE}')
                 print(f'MAE: {MAE}')
                 print(f'Percent Correct: {percent_correct}')
@@ -221,22 +226,19 @@ class LSTM_Fitting():
         print(f'The best MAE is: {best_MAE}')
         print(f'The best percent correct is: {best_percent_correct}')
 
-        # find the best configuration
         best_result = result[best_config]
 
         return best_result, best_config, best_MSE, best_MAE, best_percent_correct
 
 
-# define some needed functions
+# define needed functions
 def encode_trial_type(df, letters=True, dict=1):
-    # Create dummy columns for each option
     df.loc[:, 'Option_A'] = 0
     df.loc[:, 'Option_B'] = 0
     df.loc[:, 'Option_C'] = 0
     df.loc[:, 'Option_D'] = 0
 
     if letters:
-        # Iterate through the DataFrame to set dummies
         for index, row in df.iterrows():
             if 'A' in row['TrialType']:
                 df.at[index, 'Option_A'] = 1
@@ -292,14 +294,13 @@ def encode_trial_type(df, letters=True, dict=1):
     return df
 
 
-def find_trial_type(row):  # Function to convert the one-hot encoding back to the trial type
+def find_trial_type(row):
     options = ['A', 'B', 'C', 'D']
     trial_type = ''.join([options[i] for i in range(len(row)) if row[i] > 0])
     return trial_type
 
 
-def find_best_choice(row, target_variable):  # Function to extract the value of the best choice from the numpy array
-
+def find_best_choice(row, target_variable):
     best_choice_mapping = {
         'AB': 0,
         'CD': 2,
@@ -308,33 +309,25 @@ def find_best_choice(row, target_variable):  # Function to extract the value of 
         'BC': 2,
         'BD': 1,
     }
-
-    # extract the value from the position to indicate the best choice
     best_choice_position = best_choice_mapping[row['TrialType']]
     best_choice = row[target_variable][best_choice_position]
     return best_choice
 
 
 def weight_storing(current_model):
-    # preallocate a dictionary to store the weights
     temp_weights = {
         'Parameter Name': [],
         'Size': [],
         'Values': []
     }
-
-    # Iterate over state_dict to collect parameter names and values
     for param_name, param_values in current_model.state_dict().items():
         temp_weights['Parameter Name'].append(param_name)
         temp_weights['Size'].append(param_values.size())
-        # Flatten the tensor values and convert them to a list
         temp_weights['Values'].append(param_values.cpu().numpy().flatten().tolist())
-
     return pd.DataFrame(temp_weights)
 
 
 def average_weights(values):
-    # convert the list of weights to a dataframe
     expanded = values['Values'].apply(pd.Series)
     expanded['Parameter Name'] = values['Parameter Name']
     mean_df = expanded.groupby('Parameter Name').mean().reset_index()
