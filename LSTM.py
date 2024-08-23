@@ -150,7 +150,7 @@ class LSTM_Fitting():
             'batch_size': batch_size
         }
 
-    def fit(self, features, targets, mask, n_folds=5, output_dim=4):
+    def fit(self, features, targets, mask, result_path, n_folds=5, output_dim=4, exsiting_results=None):
         lag = 1
         n_folds = n_folds
 
@@ -165,16 +165,27 @@ class LSTM_Fitting():
 
         total_configs = len(configurations)
 
+        # check if the configurations are already in the existing results
+        if exsiting_results is not None:
+            existing_configs = list(exsiting_results.keys())
+            configurations = [config for config in configurations if config not in existing_configs]
+            total_configs = len(configurations)
+
         with Pool(cpu_count()) as pool:
             for i, result in enumerate(pool.starmap(train_configuration, [
                 (config, features, targets, mask, output_dim, n_folds, lag, i + 1, total_configs) for i, config in
                     enumerate(configurations)])):
                 config, LSTM_result, avg_MSE, weights_full = result
-                results_dict[config] = LSTM_result
-                MSE_dict[config] = avg_MSE
-                weights_dict[config] = weights_full
+                # results_dict[config] = LSTM_result
+                # MSE_dict[config] = avg_MSE
+                # weights_dict[config] = weights_full
 
-        return results_dict, MSE_dict, weights_dict
+                with open(result_path + f'results.pkl', 'wb') as f:
+                    pickle.dump(LSTM_result, f)
+                with open(result_path + f'MSE.pkl', 'wb') as f:
+                    pickle.dump(avg_MSE, f)
+                with open(result_path + f'weights.pkl', 'wb') as f:
+                    pickle.dump(weights_full, f)
 
     def find_best_configuration(self, result, standard='MSE', print_results=True):
         best_MSE = 1000

@@ -169,18 +169,22 @@ if __name__ == '__main__':
     # =============================================================================
 
     # Define the model
-    model = LSTM_Fitting(n_layers=[1, 2, 3, 4, 5], n_nodes=[5, 10, 20, 50, 100],
-                         n_epochs=[100, 200, 400, 600, 800, 1000, 1200],
-                         batch_size=[2, 4, 8, 16, 32, 64])
+    # model = LSTM_Fitting(n_layers=[1, 2, 3, 4, 5], n_nodes=[5, 10, 20, 50, 100],
+    #                      n_epochs=[100, 200, 400, 600, 800, 1000, 1200],
+    #                      batch_size=[2, 4, 8, 16, 32, 64])
 
-    result, MSE, weights = model.fit(ABCD_features, ABCD_targets, ABCD_mask)
-    best_result, _, _, _, _ = model.find_best_configuration(result=result, standard='MSE')
+    model = LSTM_Fitting(n_layers=[1, 2], n_nodes=[5, 10],
+                         n_epochs=[100],
+                         batch_size=[64])
 
-    result_path = './Results/AllResults/'
-    best_result_path = './Results/BestResults/'
-
-    with open(result_path + 'ABCD.pkl', 'wb') as f:
-        pickle.dump(result, f)
-
-    with open(best_result_path + 'ABCD_best.pkl', 'wb') as f:
-        pickle.dump(best_result, f)
+    result, MSE, weights = model.fit(ABCD_features, ABCD_targets, ABCD_mask, './Results/AllResults/ABCD')
+    # best_result, _, _, _, _ = model.find_best_configuration(result=result, standard='MSE')
+    #
+    # result_path = './Results/AllResults/'
+    # best_result_path = './Results/BestResults/'
+    #
+    # with open(result_path + 'ABCD.pkl', 'wb') as f:
+    #     pickle.dump(result, f)
+    #
+    # with open(best_result_path + 'ABCD_best.pkl', 'wb') as f:
+    #     pickle.dump(best_result, f)
