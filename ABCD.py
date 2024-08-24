@@ -1,7 +1,7 @@
 import pandas as pd
 import torch
 import pickle
-from LSTM import LSTM_Fitting, encode_trial_type, find_best_choice, find_trial_type
+from LSTM import LSTM_Fitting, encode_trial_type, find_best_choice, find_trial_type, read_pickle
 
 # =============================================================================
 # Load the data
@@ -174,17 +174,13 @@ if __name__ == '__main__':
     #                      batch_size=[2, 4, 8, 16, 32, 64])
 
     model = LSTM_Fitting(n_layers=[1, 2], n_nodes=[5, 10],
-                         n_epochs=[100],
-                         batch_size=[64])
+                         n_epochs=[2, 3],
+                         batch_size=[8])
 
-    result, MSE, weights = model.fit(ABCD_features, ABCD_targets, ABCD_mask, './Results/AllResults/ABCD')
-    # best_result, _, _, _, _ = model.find_best_configuration(result=result, standard='MSE')
-    #
-    # result_path = './Results/AllResults/'
-    # best_result_path = './Results/BestResults/'
-    #
-    # with open(result_path + 'ABCD.pkl', 'wb') as f:
-    #     pickle.dump(result, f)
-    #
-    # with open(best_result_path + 'ABCD_best.pkl', 'wb') as f:
-    #     pickle.dump(best_result, f)
+
+    model.fit(ABCD_features, ABCD_targets, ABCD_mask, './Results/AllResults/ABCD111')
+
+    # =============================================================================
+    # Read the results
+    # =============================================================================
+    results = read_pickle('./Results/AllResults/ABCD111results.pickle')

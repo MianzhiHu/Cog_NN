@@ -1,6 +1,11 @@
+from concurrent.futures import as_completed
+from concurrent.futures.process import ProcessPoolExecutor
+
 import numpy as np
 import pandas as pd
 import torch
+import pickle
+import os
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import KFold
@@ -56,7 +61,8 @@ def train_configuration(config, features, targets, mask, output_dim, n_folds, la
 
         for epoch in np.arange(n_epochs):
 
-            print(f'[{iteration}/{total_configs}] Processing epoch {epoch + 1} / {n_epochs}')
+            print(f'[{iteration}/{total_configs}] Processing epoch {epoch + 1} / {n_epochs} for '
+                  f'fold {fold + 1} / {n_folds}')
             epoch_losses = []  # Reset epoch_losses at the start of each epoch
 
             # randomize the order of the participants
@@ -141,7 +147,7 @@ def train_configuration(config, features, targets, mask, output_dim, n_folds, la
     return config, LSTM_result, total_losses, weights_full
 
 
-class LSTM_Fitting():
+class LSTM_Fitting:
     def __init__(self, n_layers, n_nodes, n_epochs, batch_size):
         self.param_grid = {
             'n_layers': n_layers,
@@ -150,42 +156,72 @@ class LSTM_Fitting():
             'batch_size': batch_size
         }
 
-    def fit(self, features, targets, mask, result_path, n_folds=5, output_dim=4, exsiting_results=None):
+    def extract_keys(self, file_path):
+        keys = []
+        try:
+            with open(file_path, 'rb') as f:
+                while True:
+                    try:
+                        # Load one dictionary at a time
+                        keys.append(list(pickle.load(f).keys())[0])
+                    except EOFError:
+                        break
+        except FileNotFoundError:
+            print("Pickle file not found.")
+
+        return keys
+
+    def fit(self, features, targets, mask, result_path, n_folds=5, output_dim=4, max_workers=cpu_count()):
         lag = 1
-        n_folds = n_folds
 
-        results_dict = {}
-        MSE_dict = {}
-        weights_dict = {}
+        # Extract the keys (configs) that have already been processed
+        processed_configs = self.extract_keys(result_path + 'results.pickle')
 
+        # Generate all possible configurations
         configurations = list(product(self.param_grid['n_layers'],
                                       self.param_grid['n_nodes'],
                                       self.param_grid['n_epochs'],
                                       self.param_grid['batch_size']))
 
-        total_configs = len(configurations)
-
-        # check if the configurations are already in the existing results
-        if exsiting_results is not None:
-            existing_configs = list(exsiting_results.keys())
-            configurations = [config for config in configurations if config not in existing_configs]
+        # Filter out the already processed configurations
+        if processed_configs:
+            configurations = [config for config in configurations if config not in processed_configs]
             total_configs = len(configurations)
+            print(f"Found {len(processed_configs)} processed configurations. Running {total_configs} new configurations.")
+        else:
+            total_configs = len(configurations)
+            print(f"No existing results found. Running {total_configs} new configurations.")
 
-        with Pool(cpu_count()) as pool:
-            for i, result in enumerate(pool.starmap(train_configuration, [
-                (config, features, targets, mask, output_dim, n_folds, lag, i + 1, total_configs) for i, config in
-                    enumerate(configurations)])):
-                config, LSTM_result, avg_MSE, weights_full = result
-                # results_dict[config] = LSTM_result
-                # MSE_dict[config] = avg_MSE
-                # weights_dict[config] = weights_full
+        # Process the new configurations
+        with ProcessPoolExecutor(max_workers) as executor:
+            # Submit tasks to the pool
+            futures = {
+                executor.submit(train_configuration, config, features, targets, mask, output_dim, n_folds, lag, i + 1,
+                                total_configs): config for i, config in enumerate(configurations)}
 
-                with open(result_path + f'results.pkl', 'wb') as f:
-                    pickle.dump(LSTM_result, f)
-                with open(result_path + f'MSE.pkl', 'wb') as f:
-                    pickle.dump(avg_MSE, f)
-                with open(result_path + f'weights.pkl', 'wb') as f:
-                    pickle.dump(weights_full, f)
+            for future in as_completed(futures):
+                try:
+                    # Get the result of the completed future
+                    config, LSTM_result, avg_MSE, weights_full = future.result()
+
+                    # Turn the results into a dictionary
+                    result = {config: {
+                        'LSTM_result': LSTM_result,
+                        'avg_MSE': avg_MSE,
+                        'weights_full': weights_full
+                    }}
+
+                    # Append the new result to the pickle file
+                    with open(result_path + 'results.pickle', 'ab') as f:
+                        pickle.dump(result, f)
+
+                    print(f"Configuration {config} processed and saved.")
+
+                    # Clear the memory
+                    del LSTM_result, avg_MSE, weights_full, result
+
+                except Exception as e:
+                    print(f"Configuration {config} raised an exception: {e}")
 
     def find_best_configuration(self, result, standard='MSE', print_results=True):
         best_MSE = 1000
@@ -243,6 +279,22 @@ class LSTM_Fitting():
 
 
 # define needed functions
+def read_pickle(file_path):
+    data = []
+    try:
+        with open(file_path, 'rb') as f:
+            while True:
+                try:
+                    # Load one dictionary at a time
+                    data.append(pickle.load(f))
+                except EOFError:
+                    break
+    except FileNotFoundError:
+        print("Pickle file not found.")
+
+    return data
+
+
 def encode_trial_type(df, letters=True, dict=1):
     df.loc[:, 'Option_A'] = 0
     df.loc[:, 'Option_B'] = 0
