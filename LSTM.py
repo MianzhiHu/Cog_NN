@@ -33,7 +33,8 @@ class LSTM(nn.Module):
         return out
 
 
-def train_configuration(config, features, targets, mask, output_dim, n_folds, lag, iteration, total_configs):
+def train_configuration(config, features, targets, mask, output_dim, n_folds, lag, iteration, total_configs,
+                        postprocessing_function):
     n_layers, n_nodes, n_epochs, batch_size = config
     print(f'Current Configuration [{iteration}/{total_configs}]:')
     print(
@@ -89,8 +90,6 @@ def train_configuration(config, features, targets, mask, output_dim, n_folds, la
 
                 epoch_losses.append(on_policy_loss)
 
-                optimizer.step()
-
             # Average loss for this epoch
             avg_epoch_loss = np.mean(epoch_losses)
             total_losses.append(avg_epoch_loss)
@@ -136,25 +135,24 @@ def train_configuration(config, features, targets, mask, output_dim, n_folds, la
                                    pd.DataFrame({'Subnum': participant, 'trial_index': trial_index,
                                                  'pred_y': outcome}), on=['Subnum', 'trial_index'])
 
-    # now, get the trial type first
-    LSTM_result['TrialType'] = LSTM_result['pred_y'].apply(find_trial_type)
-
-    # get people's actual choices, as well as the predicted choices
-    LSTM_result['bestOption'] = LSTM_result.apply(find_best_choice, axis=1, target_variable='real_y')
-    LSTM_result['pred_bestOption'] = LSTM_result.apply(find_best_choice, axis=1,
-                                                       target_variable='pred_y')
+    # Postprocessing
+    LSTM_result = postprocessing_function(LSTM_result)
 
     return config, LSTM_result, total_losses, weights_full
 
 
 class LSTM_Fitting:
-    def __init__(self, n_layers, n_nodes, n_epochs, batch_size):
+    def __init__(self, n_layers, n_nodes, n_epochs, batch_size, task):
         self.param_grid = {
             'n_layers': n_layers,
             'n_nodes': n_nodes,
             'n_epochs': n_epochs,
             'batch_size': batch_size
         }
+        if task == 'ABCD':
+            self.postprocessing_function = postprocessing_ABCD
+        elif task == 'IGTSGT':
+            self.postprocessing_function = postprocessing_IGTSGT
 
     def extract_keys(self, file_path):
         keys = []
@@ -196,8 +194,9 @@ class LSTM_Fitting:
         with ProcessPoolExecutor(max_workers) as executor:
             # Submit tasks to the pool
             futures = {
-                executor.submit(train_configuration, config, features, targets, mask, output_dim, n_folds, lag, i + 1,
-                                total_configs): config for i, config in enumerate(configurations)}
+                executor.submit(train_configuration, config, features, targets, mask, output_dim, n_folds,
+                                lag, i + 1, total_configs,
+                                self.postprocessing_function): config for i, config in enumerate(configurations)}
 
             for future in as_completed(futures):
                 try:
@@ -213,7 +212,7 @@ class LSTM_Fitting:
 
                     # Append the new result to the pickle file
                     with open(result_path + 'results.pickle', 'ab') as f:
-                        pickle.dump(result, f)
+                        pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                     print(f"Configuration {config} processed and saved.")
 
@@ -395,3 +394,34 @@ def average_weights(values):
     expanded['Parameter Name'] = values['Parameter Name']
     mean_df = expanded.groupby('Parameter Name').mean().reset_index()
     return mean_df
+
+
+def postprocessing_ABCD(LSTM_result):
+    # now, get the trial type first
+    LSTM_result['TrialType'] = LSTM_result['pred_y'].apply(find_trial_type)
+
+    # get people's actual choices, as well as the predicted choices
+    LSTM_result['bestOption'] = LSTM_result.apply(find_best_choice, axis=1, target_variable='real_y')
+    LSTM_result['pred_bestOption'] = LSTM_result.apply(find_best_choice, axis=1,
+                                                       target_variable='pred_y')
+
+    return LSTM_result
+
+
+def postprocessing_IGTSGT(LSTM_result):
+    # find the real choice by identifying the 1 in the real_y column
+    LSTM_result['choice'] = LSTM_result['real_y'].apply(lambda x: np.where(x == 1)[0][0] if 1 in x else -1).astype(int)
+    LSTM_result['pred_choice'] = LSTM_result['pred_y'].apply(lambda x: np.where(x == max(x))[0][0])
+    LSTM_result['correct'] = LSTM_result['choice'] == LSTM_result['pred_choice']
+    LSTM_result['prob_choice'] = LSTM_result.apply(
+        lambda row: row['pred_y'][row['choice']] if isinstance(row['choice'], int) and 0 <= row['choice'] < len(
+            row['pred_y']) else None,
+        axis=1)
+    LSTM_result['prob_pred_choice'] = LSTM_result.apply(
+        lambda row: row['pred_y'][row['pred_choice']] if isinstance(row['pred_choice'], int) and 0 <= row[
+            'pred_choice'] < len(row['pred_y']) else None,
+        axis=1)
+    LSTM_result['choice'] = np.where(LSTM_result['choice'] != -1, LSTM_result['choice'] + 1, -1)
+    LSTM_result['pred_choice'] = LSTM_result['pred_choice'] + 1
+
+    return LSTM_result
