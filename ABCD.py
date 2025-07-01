@@ -1,18 +1,21 @@
 import pandas as pd
+import numpy as np
 import torch
 import pickle
+from statsmodels.iolib.summary import summary
 from LSTM import LSTM_Fitting, encode_trial_type, find_best_choice, find_trial_type, read_pickle
+from utils.ComputationalModeling import ComputationalModels, dict_generator
 
 # =============================================================================
 # Load the data
 # =============================================================================
 if __name__ == '__main__':
-    cont_rewards = pd.read_csv("./Data/ABCD_ContRewards.csv")
-    ABCD_2019_1 = pd.read_csv("./Data/ABCD_2019_1.csv")
-    ABCD_2019_2 = pd.read_csv("./Data/ABCD_2019_2.csv")
-    ABCD_2019_3 = pd.read_csv("./Data/ABCD_2019_3.csv")
-    ABCD_2022_1 = pd.read_csv("./Data/ABCD_2022_1.csv")
-    ABCD_2022_2 = pd.read_csv("./Data/ABCD_2022_2.csv")
+    cont_rewards = pd.read_csv("./Data/raw_data/ABCD_ContRewards.csv")
+    ABCD_2019_1 = pd.read_csv("./Data/raw_data/ABCD_2019_1.csv")
+    ABCD_2019_2 = pd.read_csv("./Data/raw_data/ABCD_2019_2.csv")
+    ABCD_2019_3 = pd.read_csv("./Data/raw_data/ABCD_2019_3.csv")
+    ABCD_2022_1 = pd.read_csv("./Data/raw_data/ABCD_2022_1.csv")
+    ABCD_2022_2 = pd.read_csv("./Data/raw_data/ABCD_2022_2.csv")
 
     LV = cont_rewards[cont_rewards['Condition'] == 'LV']
     MV = cont_rewards[cont_rewards['Condition'] == 'MV']
@@ -21,7 +24,7 @@ if __name__ == '__main__':
     # =============================================================================
     # Prepare the ABCD continuous rewards data initially used for the Dual-Process Model
     # =============================================================================
-    dataframes = [LV, MV, HV]
+    dataframes = [HV]
     for i in range(len(dataframes)):
         dataframes[i] = dataframes[i].reset_index(drop=True)
         dataframes[i].iloc[:, 1] = (dataframes[i].index // 250) + 1
@@ -33,7 +36,7 @@ if __name__ == '__main__':
 
         # standardize the reward using min-max scaling
         dataframes[i]['Reward'] = (dataframes[i]['Reward'] - dataframes[i]['Reward'].min()) / (
-                    dataframes[i]['Reward'].max() - dataframes[i]['Reward'].min())
+                dataframes[i]['Reward'].max() - dataframes[i]['Reward'].min())
 
         # set the reward to 0 after 150 trials
         dataframes[i].loc[dataframes[i]['trial_index'] > 150, 'Reward'] = 0
@@ -43,7 +46,7 @@ if __name__ == '__main__':
         dataframes[i].loc[dataframes[i]['trial_index'] > 150, 'RewardSeen'] = 0
 
         # if reward is not seen, set the reward to NaN
-        dataframes[i].loc[dataframes[i]['RewardSeen'] == 0, 'Reward'] = 0
+        dataframes[i].loc[dataframes[i]['RewardSeen'] == 0, 'Reward'] = np.nan
 
         # Function to encode pairs
         encode_map = {
@@ -112,7 +115,7 @@ if __name__ == '__main__':
     # Concatenate the dataframes
     # =============================================================================
     # define the variables
-    var = ['Subnum', 'Reward', 'RewardSeen', 'Option_A', 'Option_B', 'Option_C', 'Option_D',
+    var = ['Subnum', 'RT', 'Reward', 'RewardSeen', 'Option_A', 'Option_B', 'Option_C', 'Option_D',
            'KeyResponse_0', 'KeyResponse_1', 'KeyResponse_2', 'KeyResponse_3']
 
     # concatenate the dataframes
@@ -123,6 +126,10 @@ if __name__ == '__main__':
 
     # recalculate the subject numbers
     df['Subnum'] = (df.index // 250) + 1
+    df['trial'] = df.index % 250 + 1
+    print(f'We have {df["Subnum"].nunique()} participants in total.')
+    print(max(df['Subnum']))
+    df.to_csv('./Data/processed_data/ABCD_total.csv', index=False)
 
     # # only needed when using the ABCD_2022 data
     # # find the largest subject number
@@ -143,7 +150,7 @@ if __name__ == '__main__':
     sequences = list(grouped.values)
     num_participants = len(sequences)
     max_len = max([len(x) for x in sequences])
-    padded_sequences = torch.zeros((len(sequences), max_len, len(var)-1))
+    padded_sequences = torch.zeros((len(sequences), max_len, len(var) - 1))
 
     for i, seq in enumerate(sequences):
         for j, step in enumerate(seq):
@@ -162,20 +169,168 @@ if __name__ == '__main__':
         raise ValueError('There are infinite values in the data!')
 
     print(f'Data preparation has been completed!')
-    print(f'We have {num_participants} participants, {max_len} trials per participant, and {ABCD_features.shape[2]} features.')
+    print(
+        f'We have {num_participants} participants, {max_len} trials per participant, and {ABCD_features.shape[2]} features.')
 
-    # =============================================================================
-    # The LSTM model fitting starts here
-    # =============================================================================
-    # Define the model
-    model = LSTM_Fitting(n_layers=[1, 2, 3, 4, 5], n_nodes=[5, 10, 20, 50, 100],
-                         n_epochs=[100, 200, 400, 600, 800, 1000, 1200],
-                         batch_size=[8], task='ABCD')
+    # # =============================================================================
+    # # The LSTM model fitting starts here
+    # # =============================================================================
+    # # Define the model
+    # model = LSTM_Fitting(n_layers=[1, 2, 3, 4, 5], n_nodes=[5, 10, 20, 50, 100],
+    #                      n_epochs=[100, 200, 400, 600, 800, 1000, 1200],
+    #                      batch_size=[8], task='ABCD')
+    #
+    #
+    # model.fit(ABCD_features, ABCD_targets, ABCD_mask, './Results/AllResults/ABCD')
+    #
+    # # =============================================================================
+    # # Read the results
+    # # =============================================================================
+    # results = read_pickle('./Results/AllResults/ABCDresults.pickle')
+
+    # # =============================================================================
+    # # Now fit traditional delta and decay models
+    # # =============================================================================
+    # # Define the models
+    # model_delta = ComputationalModels(model_type='delta')
+    # model_decay = ComputationalModels(model_type='decay')
+    #
+    # # With feedback
+    # ABCD_with_feedback = pd.concat(dataframes_2019[0:2], ignore_index=True, axis=0).reset_index(drop=True)
+    # ABCD_without_feedback = dataframes_2019[2].reset_index(drop=True)
+    #
+    # # reverse the one-hot encoding
+    # for i, data in enumerate([ABCD_with_feedback, ABCD_without_feedback]):
+    #     data['KeyResponse'] = data[['KeyResponse_0', 'KeyResponse_1', 'KeyResponse_2',
+    #                                 'KeyResponse_3']].idxmax(axis=1).str[-1].astype(int)
+    #     data.rename(columns={'TrialType': 'SetSeen.'}, inplace=True)
+    #     data['SetSeen.'] = data['SetSeen.'] - 1
+    #     data['Subnum'] = (data.index // 250) + 1
+    #
+    # ABCD_with_feedback_dict = dict_generator(ABCD_with_feedback)
+    # ABCD_without_feedback_dict = dict_generator(ABCD_without_feedback)
+
+    # # Fit the models
+    # delta_results_fb = model_delta.fit(ABCD_with_feedback_dict, num_iterations=200, num_feedback=250)
+    # decay_results_fb = model_decay.fit(ABCD_with_feedback_dict, num_iterations=200, num_feedback=250)
+    # delta_results_nofb = model_delta.fit(ABCD_without_feedback_dict, num_iterations=200)
+    # decay_results_nofb = model_decay.fit(ABCD_without_feedback_dict, num_iterations=200)
+    #
+    # # add the condition to the results
+    # delta_results_fb['Condition'] = 'FB'
+    # decay_results_fb['Condition'] = 'FB'
+    # delta_results_nofb['Condition'] = 'NoFB'
+    # decay_results_nofb['Condition'] = 'NoFB'
+    #
+    # delta_results = pd.concat([delta_results_fb, delta_results_nofb], axis=0).reset_index(drop=True)
+    # decay_results = pd.concat([decay_results_fb, decay_results_nofb], axis=0).reset_index(drop=True)
+    #
+    # # read in the fitting results from Hu et al.(2024)
+    # delta_HV = pd.read_csv('./Results/RLResults/delta_HV_results.csv')
+    # decay_HV = pd.read_csv('./Results/RLResults/decay_HV_results.csv')
+    # delta_MV = pd.read_csv('./Results/RLResults/delta_MV_results.csv')
+    # decay_MV = pd.read_csv('./Results/RLResults/decay_MV_results.csv')
+    # delta_LV = pd.read_csv('./Results/RLResults/delta_LV_results.csv')
+    # decay_LV = pd.read_csv('./Results/RLResults/decay_LV_results.csv')
+    #
+    # # add the condition to the results
+    # for df in [delta_HV, decay_HV]:
+    #     df['Condition'] = 'HV'
+    # for df in [delta_MV, decay_MV]:
+    #     df['Condition'] = 'MV'
+    # for df in [delta_LV, decay_LV]:
+    #     df['Condition'] = 'LV'
+    #
+    # # concatenate the results
+    # delta_results = pd.concat([delta_LV, delta_MV, delta_HV, delta_results], axis=0).reset_index(drop=True)
+    # decay_results = pd.concat([decay_LV, decay_MV, decay_HV, decay_results], axis=0).reset_index(drop=True)
+    #
+    # # reset the participant numbers
+    # delta_results['participant_id'] = delta_results.index + 1
+    # decay_results['participant_id'] = decay_results.index + 1
+    #
+    # # save the results
+    # delta_results.to_csv('./Results/RLResults/delta_results.csv', index=False)
+    # decay_results.to_csv('./Results/RLResults/decay_results.csv', index=False)
+
+    # # =============================================================================
+    # # Post-hoc simulation starts here
+    # # =============================================================================
+    # # Load the results
+    # delta_results = pd.read_csv('./Results/RLResults/delta_results.csv')
+    # decay_results = pd.read_csv('./Results/RLResults/decay_results.csv')
+    #
+    # # Separate the results again into conditions
+    # results = {'delta': delta_results, 'decay': decay_results}
+    # conditions = ['LV', 'MV', 'HV', 'FB', 'NoFB']
+    # result_dfs = {}
+    # for key, result in results.items():
+    #     for condition in conditions:
+    #         result_dfs[f'{key}_{condition}'] = result[result['Condition'] == condition].reset_index(drop=True)
+    #         result_dfs[f'{key}_{condition}']['participant_id'] = result_dfs[f'{key}_{condition}'].index + 1
+    #
+    # # define means and standard deviations
+    # reward_means = [0.65, 0.35, 0.75, 0.25]
+    # reward_var_HV = [0.48, 0.48, 0.43, 0.43]
+    # reward_var_MV = [0.24, 0.24, 0.22, 0.22]
+    # reward_var_LV = [0.12, 0.12, 0.11, 0.11]
+    #
+    # # post-hoc simulations for the delta model
+    # delta_posthoc_LV = model_delta.post_hoc_simulation(result_dfs['delta_LV'], dataframes[0], reward_means,
+    #                                                    reward_var_LV, trial_sequence_option='ori',
+    #                                                    reward_sampling='normal', summary=True, num_iterations=1000)
+    # delta_posthoc_MV = model_delta.post_hoc_simulation(result_dfs['delta_MV'], dataframes[1], reward_means,
+    #                                                    reward_var_MV, trial_sequence_option='ori',
+    #                                                    reward_sampling='normal', summary=True, num_iterations=1000)
+    # delta_posthoc_HV = model_delta.post_hoc_simulation(result_dfs['delta_HV'], dataframes[2], reward_means,
+    #                                                    reward_var_HV, trial_sequence_option='ori',
+    #                                                    reward_sampling='normal', summary=True, num_iterations=1000)
+    # delta_posthoc_FB = model_delta.post_hoc_simulation(result_dfs['delta_FB'], ABCD_with_feedback, reward_means,
+    #                                                    reward_var_HV, trial_sequence_option='ori', num_feedback=250,
+    #                                                    reward_sampling='binary', summary=True, num_iterations=1000)
+    # delta_posthoc_NoFB = model_delta.post_hoc_simulation(result_dfs['delta_NoFB'], ABCD_without_feedback, reward_means,
+    #                                                      reward_var_HV, trial_sequence_option='ori',
+    #                                                      reward_sampling='binary', summary=True, num_iterations=1000)
+    #
+    # # post-hoc simulations for the decay model
+    # decay_posthoc_LV = model_decay.post_hoc_simulation(result_dfs['decay_LV'], dataframes[0], reward_means,
+    #                                                    reward_var_LV, trial_sequence_option='ori',
+    #                                                    reward_sampling='normal', summary=True, num_iterations=1000)
+    # decay_posthoc_MV = model_decay.post_hoc_simulation(result_dfs['decay_MV'], dataframes[1], reward_means,
+    #                                                    reward_var_MV, trial_sequence_option='ori',
+    #                                                    reward_sampling='normal', summary=True, num_iterations=1000)
+    # decay_posthoc_HV = model_decay.post_hoc_simulation(result_dfs['decay_HV'], dataframes[2], reward_means,
+    #                                                    reward_var_HV, trial_sequence_option='ori',
+    #                                                    reward_sampling='normal', summary=True, num_iterations=1000)
+    # decay_posthoc_FB = model_decay.post_hoc_simulation(result_dfs['decay_FB'], ABCD_with_feedback, reward_means,
+    #                                                    reward_var_HV, trial_sequence_option='ori', num_feedback=250,
+    #                                                    reward_sampling='binary', summary=True, num_iterations=1000)
+    # decay_posthoc_NoFB = model_decay.post_hoc_simulation(result_dfs['decay_NoFB'], ABCD_without_feedback, reward_means,
+    #                                                      reward_var_HV, trial_sequence_option='ori',
+    #                                                      reward_sampling='binary', summary=True, num_iterations=1000)
+    #
+    # # concatenate the results
+    # delta_posthoc = pd.concat([delta_posthoc_LV, delta_posthoc_MV, delta_posthoc_HV, delta_posthoc_FB,
+    #                            delta_posthoc_NoFB], axis=0).reset_index(drop=True)
+    # delta_posthoc['Subnum'] = delta_posthoc.index // 250 + 1
+    #
+    #
+    # decay_posthoc = pd.concat([decay_posthoc_LV, decay_posthoc_MV, decay_posthoc_HV, decay_posthoc_FB,
+    #                            decay_posthoc_NoFB], axis=0).reset_index(drop=True)
+    # decay_posthoc['Subnum'] = decay_posthoc.index // 250 + 1
+    #
+    # # save the results
+    # delta_posthoc.to_csv('./Results/RLResults/delta_posthoc_results.csv', index=False)
+    # decay_posthoc.to_csv('./Results/RLResults/decay_posthoc_results.csv', index=False)
+    #
+    # # =============================================================================
+    # # Concatenate all the results
+    # # =============================================================================
+    # delta_results = pd.read_csv('./Results/RLResults/delta_results.csv')
+    # decay_results = pd.read_csv('./Results/RLResults/decay_results.csv')
+    # delta_posthoc = pd.read_csv('./Results/RLResults/delta_posthoc_results.csv')
+    # decay_posthoc = pd.read_csv('./Results/RLResults/decay_posthoc_results.csv')
 
 
-    model.fit(ABCD_features, ABCD_targets, ABCD_mask, './Results/AllResults/ABCD')
 
-    # =============================================================================
-    # Read the results
-    # =============================================================================
-    results = read_pickle('./Results/AllResults/ABCDresults.pickle')
+
