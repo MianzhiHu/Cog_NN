@@ -5,6 +5,7 @@ import pickle
 from statsmodels.iolib.summary import summary
 from LSTM import LSTM_Fitting, encode_trial_type, find_best_choice, find_trial_type, read_pickle
 from utils.ComputationalModeling import ComputationalModels, dict_generator
+pd.options.mode.copy_on_write = True
 
 # =============================================================================
 # Load the data
@@ -16,6 +17,7 @@ if __name__ == '__main__':
     ABCD_2019_3 = pd.read_csv("./Data/raw_data/ABCD_2019_3.csv")
     ABCD_2022_1 = pd.read_csv("./Data/raw_data/ABCD_2022_1.csv")
     ABCD_2022_2 = pd.read_csv("./Data/raw_data/ABCD_2022_2.csv")
+    ABCD_2025 = pd.read_csv("./Data/raw_data/ABCD_2025_ID.csv")
 
     LV = cont_rewards[cont_rewards['Condition'] == 'LV']
     MV = cont_rewards[cont_rewards['Condition'] == 'MV']
@@ -33,30 +35,14 @@ if __name__ == '__main__':
         dataframes[i]['KeyResponse'] = dataframes[i]['KeyResponse'] - 1
         dataframes[i]['SetSeen.'] = dataframes[i]['SetSeen.'] - 1
         dataframes[i]['trial_index'] = dataframes[i].groupby('Subnum').cumcount() + 1
-
-        # standardize the reward using min-max scaling
-        dataframes[i]['Reward'] = (dataframes[i]['Reward'] - dataframes[i]['Reward'].min()) / (
-                dataframes[i]['Reward'].max() - dataframes[i]['Reward'].min())
-
-        # set the reward to 0 after 150 trials
-        dataframes[i].loc[dataframes[i]['trial_index'] > 150, 'Reward'] = 0
+        dataframes[i]['source'] = 'dp'
 
         # add a column to indicate whether the reward is seen by the participant
         dataframes[i]['RewardSeen'] = 1
         dataframes[i].loc[dataframes[i]['trial_index'] > 150, 'RewardSeen'] = 0
 
         # if reward is not seen, set the reward to NaN
-        dataframes[i].loc[dataframes[i]['RewardSeen'] == 0, 'Reward'] = np.nan
-
-        # Function to encode pairs
-        encode_map = {
-            'AB': ['A', 'B'],
-            'CD': ['C', 'D'],
-            'CA': ['C', 'A'],
-            'CB': ['C', 'B'],
-            'BD': ['B', 'D'],
-            'AD': ['A', 'D']
-        }
+        dataframes[i].loc[dataframes[i]['RewardSeen'] == 0, 'Reward'] = 0
 
         # Apply the encoding function
         dataframes[i] = encode_trial_type(dataframes[i])
@@ -72,10 +58,14 @@ if __name__ == '__main__':
     dataframes_2019 = [ABCD_2019_1, ABCD_2019_2, ABCD_2019_3]
 
     for i in range(len(dataframes_2019)):
-        dataframes_2019[i]['trial_index'] = dataframes_2019[i].groupby('subnum').cumcount() + 1
         dataframes_2019[i]['RewardSeen'] = 1
         dataframes_2019[i].rename(columns={'subnum': 'Subnum', 'optSeen': 'TrialType', 'response': 'KeyResponse',
                                            'reward': 'Reward'}, inplace=True)
+        # participants in the 1st and 2nd dataset completed 50 trials in which they can pick from all 4 options,
+        # but these trials are not of our interest
+        dataframes_2019[i] = dataframes_2019[i][dataframes_2019[i]['TrialType'] != 7]
+        dataframes_2019[i]['trial_index'] = dataframes_2019[i].groupby('Subnum').cumcount() + 1
+        dataframes_2019[i]['source'] = f'2019_{i+1}'
         dataframes_2019[i]['KeyResponse'] = (dataframes_2019[i]['KeyResponse'] - 1).astype(int)
         dataframes_2019[i] = encode_trial_type(dataframes_2019[i], letters=False)
         dataframes_2019[i] = pd.get_dummies(dataframes_2019[i], columns=['KeyResponse'])
@@ -85,12 +75,30 @@ if __name__ == '__main__':
         if i == 2:
             # participants in the 3rd dataset did not see the reward after 150 trials
             dataframes_2019[i].loc[dataframes_2019[i]['trial_index'] > 150, 'RewardSeen'] = 0
-            dataframes_2019[i].loc[dataframes_2019[i]['RewardSeen'] == 0, 'reward'] = 0
+            dataframes_2019[i].loc[dataframes_2019[i]['RewardSeen'] == 0, 'Reward'] = 0
 
-        if i > 0:
-            # participants in the 1st and 2nd dataset completed 50 trials in which they can pick from all 4 options
-            # these trials are not of our interest
-            dataframes_2019[i] = dataframes_2019[i][dataframes_2019[i]['TrialType'] != 7]
+
+    # =============================================================================
+    # Prepare the ABCD data from the individual difference study (unpublished 2025)
+    # =============================================================================
+    # This is a 200 trial version of the ABCD task with 120 training trials and 80 transfer trials
+    ABCD_2025 = ABCD_2025[ABCD_2025['Condition'] == 'Frequency'].reset_index() # only keep the frequency condition
+    ABCD_2025.rename(columns={'ReactTime': 'RT'}, inplace=True)
+    ABCD_2025['Subnum'] = (ABCD_2025.index // 200) + 1
+
+    # participants did not see the reward after 120 trials
+    ABCD_2025['trial_index'] = ABCD_2025.groupby('Subnum').cumcount() + 1
+    ABCD_2025['RewardSeen'] = 1
+    ABCD_2025['source'] = '2025_ID'
+    ABCD_2025.loc[ABCD_2025['trial_index'] > 120, 'RewardSeen'] = 0
+    ABCD_2025.loc[ABCD_2025['RewardSeen'] == 0, 'Reward'] = 0
+
+    # Recode the trial types
+    ABCD_2025 = encode_trial_type(ABCD_2025, letters=True)
+    ABCD_2025['KeyResponse'] = (ABCD_2025['KeyResponse'] - 1).astype(int)
+    ABCD_2025 = pd.get_dummies(ABCD_2025, columns=['KeyResponse'])
+    ABCD_2025[['KeyResponse_0', 'KeyResponse_1', 'KeyResponse_2', 'KeyResponse_3']] = ABCD_2025[[
+        'KeyResponse_0', 'KeyResponse_1', 'KeyResponse_2', 'KeyResponse_3']].astype(int)
 
     # =============================================================================
     # Prepare the ABCD data initially published in Don et al. (2022)
@@ -115,20 +123,39 @@ if __name__ == '__main__':
     # Concatenate the dataframes
     # =============================================================================
     # define the variables
-    var = ['Subnum', 'RT', 'Reward', 'RewardSeen', 'Option_A', 'Option_B', 'Option_C', 'Option_D',
-           'KeyResponse_0', 'KeyResponse_1', 'KeyResponse_2', 'KeyResponse_3']
+    var = ['Subnum', 'trial_index', 'RT', 'Reward', 'RewardSeen', 'Option_A', 'Option_B', 'Option_C', 'Option_D',
+           'KeyResponse_0', 'KeyResponse_1', 'KeyResponse_2', 'KeyResponse_3', 'source']
 
     # concatenate the dataframes
     dataframes_250 = dataframes + dataframes_2019
     for i in range(len(dataframes_250)):
         dataframes_250[i] = dataframes_250[i][var]
-    df = pd.concat(dataframes_250, ignore_index=True)
+    df = pd.concat(dataframes_250, ignore_index=True).reset_index(drop=True)
 
     # recalculate the subject numbers
     df['Subnum'] = (df.index // 250) + 1
-    df['trial'] = df.index % 250 + 1
+
+    # record the maximum participant number
+    n_participant = max(df['Subnum'])
+    print(df.groupby('Subnum').size().value_counts())
+
+    # now add the 2025 data
+    ABCD_2025['Subnum'] = ABCD_2025['Subnum'] + n_participant
+    df = pd.concat([df, ABCD_2025[var]], ignore_index=True)
     print(f'We have {df["Subnum"].nunique()} participants in total.')
-    print(max(df['Subnum']))
+
+    # Verify RewardSeen=0 implies Reward=0 for all participants
+    invalid_rows = df[(df['RewardSeen'] == 0) & (df['Reward'] != 0)]
+    if len(invalid_rows) > 0:
+        raise ValueError(f'Found {len(invalid_rows)} rows where RewardSeen=0 but Reward≠0')
+    print('Verified: All rows with RewardSeen=0 have Reward=0')
+
+    # Check if RewardSeen is all 1 in 2019 Experiment 1 and 2
+    print(df.groupby('source')['RewardSeen'].value_counts())
+
+    # Check the maximum trial numbers per source
+    print(df.groupby('source')['trial_index'].max())
+
     df.to_csv('./Data/processed_data/ABCD_total.csv', index=False)
 
     # # only needed when using the ABCD_2022 data
@@ -141,36 +168,36 @@ if __name__ == '__main__':
     #
     # df = pd.concat([df, ABCD_2022], ignore_index=True)
 
-    # =============================================================================
-    # Transform the data to a format that can be used for the LSTM model
-    # =============================================================================
-    # Group df by subject
-    grouped = df.groupby('Subnum').apply(lambda x: x.values.tolist(), include_groups=False)
-
-    sequences = list(grouped.values)
-    num_participants = len(sequences)
-    max_len = max([len(x) for x in sequences])
-    padded_sequences = torch.zeros((len(sequences), max_len, len(var) - 1))
-
-    for i, seq in enumerate(sequences):
-        for j, step in enumerate(seq):
-            padded_sequences[i, j] = torch.tensor(step)
-
-    ABCD_features = padded_sequences[:, :, :]
-    ABCD_targets = padded_sequences[:, :, -4:]
-    ABCD_mask = padded_sequences[:, :, 2:6]
-
-    # check if there are any NaN values
-    if torch.isnan(ABCD_features).any() or torch.isnan(ABCD_targets).any() or torch.isnan(ABCD_mask).any():
-        raise ValueError('There are NaN values in the data!')
-
-    # check for infinite values (very unlikely)
-    if torch.isinf(ABCD_features).any() or torch.isinf(ABCD_targets).any() or torch.isinf(ABCD_mask).any():
-        raise ValueError('There are infinite values in the data!')
-
-    print(f'Data preparation has been completed!')
-    print(
-        f'We have {num_participants} participants, {max_len} trials per participant, and {ABCD_features.shape[2]} features.')
+    # # =============================================================================
+    # # Transform the data to a format that can be used for the LSTM model
+    # # =============================================================================
+    # # Group df by subject
+    # grouped = df.groupby('Subnum').apply(lambda x: x.values.tolist(), include_groups=False)
+    #
+    # sequences = list(grouped.values)
+    # num_participants = len(sequences)
+    # max_len = max([len(x) for x in sequences])
+    # padded_sequences = torch.zeros((len(sequences), max_len, len(var) - 1))
+    #
+    # for i, seq in enumerate(sequences):
+    #     for j, step in enumerate(seq):
+    #         padded_sequences[i, j] = torch.tensor(step)
+    #
+    # ABCD_features = padded_sequences[:, :, :]
+    # ABCD_targets = padded_sequences[:, :, -4:]
+    # ABCD_mask = padded_sequences[:, :, 2:6]
+    #
+    # # check if there are any NaN values
+    # if torch.isnan(ABCD_features).any() or torch.isnan(ABCD_targets).any() or torch.isnan(ABCD_mask).any():
+    #     raise ValueError('There are NaN values in the data!')
+    #
+    # # check for infinite values (very unlikely)
+    # if torch.isinf(ABCD_features).any() or torch.isinf(ABCD_targets).any() or torch.isinf(ABCD_mask).any():
+    #     raise ValueError('There are infinite values in the data!')
+    #
+    # print(f'Data preparation has been completed!')
+    # print(
+    #     f'We have {num_participants} participants, {max_len} trials per participant, and {ABCD_features.shape[2]} features.')
 
     # # =============================================================================
     # # The LSTM model fitting starts here

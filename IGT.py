@@ -46,12 +46,16 @@ def summary_df_generator(choice_path, gains_path, losses_path):
 # =============================================================================
 if __name__ == '__main__':
     # Read the IGT many labs data for included experiments that have at least 100 trials
+    IGT_95 = summary_df_generator('./Data/raw_data/IGTdataSteingroever2014/choice_95.csv',
+                                   './Data/raw_data/IGTdataSteingroever2014/wi_95.csv',
+                                   './Data/raw_data/IGTdataSteingroever2014/lo_95.csv') # We will not use 95-trial IGT
     IGT_100 = summary_df_generator('./Data/raw_data/IGTdataSteingroever2014/choice_100.csv',
                                    './Data/raw_data/IGTdataSteingroever2014/wi_100.csv',
                                    './Data/raw_data/IGTdataSteingroever2014/lo_100.csv')
     IGT_150 = summary_df_generator('./Data/raw_data/IGTdataSteingroever2014/choice_150.csv',
                                    './Data/raw_data/IGTdataSteingroever2014/wi_150.csv',
                                    './Data/raw_data/IGTdataSteingroever2014/lo_150.csv')
+    print(IGT_95.groupby('Subnum').size().value_counts())
     print(IGT_100.groupby('Subnum').size().value_counts())
     print(IGT_150.groupby('Subnum').size().value_counts())
 
@@ -66,22 +70,8 @@ if __name__ == '__main__':
     IGT_manylabs['Subnum'] = (IGT_manylabs.index // 100) + 1
     print(IGT_manylabs.groupby('Subnum').size().value_counts())
 
-    # Now read the IGT data from the ordered dataset
-    IGT_ordered = pd.read_csv("./Data/raw_data/IGTSGT_OrderData.csv")
-
-    IGT_ordered = IGT_ordered[IGT_ordered['FileName'].str.contains('IGT')].reset_index(drop=True)
-
-    IGT_ordered['outcome'] = IGT_ordered['ChoiceNA']
-    IGT_ordered['trial'] = IGT_ordered.index % 100 + 1
-    print(IGT_ordered['outcome'].value_counts())
-
-    # Merge the datasets
-    IGT = pd.concat([IGT_manylabs, IGT_ordered], axis=0).reset_index(drop=True)
-    IGT['Subnum'] = (IGT.index // 100) + 1
-    print(IGT.groupby('Subnum').size().value_counts())
-
     # define the kept variables
     kept_var = ['Subnum', 'trial', 'choice', 'outcome']
-    IGT = IGT[kept_var]
+    IGT = IGT_manylabs[kept_var]
     print(IGT.groupby('Subnum').size().value_counts())
     IGT.to_csv('./Data/processed_data/IGT_total.csv', index=False)

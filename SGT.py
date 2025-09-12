@@ -12,12 +12,18 @@ from utils.ComputationalModeling import ComputationalModels, dict_generator, bes
 # =============================================================================
 if __name__ == '__main__':
     sgt_2022 = pd.read_csv("./Data/raw_data/SGT_Don_2022.csv")
-    sgt_ordered = pd.read_csv("./Data/raw_data/IGTSGT_OrderData.csv")
-    sgt_ordered = sgt_ordered[sgt_ordered['FileName'].str.contains('SCGT')]
+    sgt_2024 = pd.read_csv("./Data/raw_data/SGTControlExp1.csv")
+
     sgt_2022.rename(columns={'subjID': 'Subnum', 'rt': 'RT'}, inplace=True)
-    sgt = pd.concat([sgt_2022, sgt_ordered], axis=0)
+    sgt_2024.rename(columns={'Reward': 'outcome', 'React': 'RT', 'keyResponse': 'choice'}, inplace=True)
+    print(sgt_2022['choice'].value_counts())
+    print(sgt_2024['choice'].value_counts())
+    print(sgt_2022.columns)
+    print(sgt_2024.columns)
+
+    sgt = pd.concat([sgt_2022, sgt_2024], axis=0)
     print(sgt_2022.groupby('Subnum').size().value_counts())
-    print(sgt_ordered.groupby('FileName').size())
+    print(sgt_2024.groupby('Subnum').size().value_counts())
     print(sgt.groupby('Subnum').size().value_counts())
 
     # =============================================================================
