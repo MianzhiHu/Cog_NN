@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib import font_manager as fm
+from scipy.stats import norm
 
 palette = sns.color_palette("deep")
 font_path = './Abhaya_Libre/AbhayaLibre-SemiBold.ttf'
@@ -18,10 +19,10 @@ colors = [palette[3], palette[0]]
 # Plot initial expected values
 plt.figure(figsize=(8, 6))
 bars = plt.bar(['Option A', 'Option B'], EVs, color=colors)
-plt.ylim(0, 20)
-plt.ylabel(fontproperties=prop, ylabel='Expected Value', fontsize=30)
-plt.xticks(fontproperties=prop, fontsize=25)
-plt.yticks(fontproperties=prop, fontsize=22, ticks=[0, 5, 10, 15, 20])
+plt.ylim(0, 18)
+plt.ylabel(fontproperties=prop, ylabel='Expected Value', fontsize=35)
+plt.xticks(fontproperties=prop, fontsize=30)
+plt.yticks(fontproperties=prop, fontsize=30, ticks=[0, 5, 10, 15])
 sns.despine()
 plt.tight_layout()
 plt.savefig('./Figures/Initial_Expected_Values.png', dpi=600)
@@ -29,17 +30,17 @@ plt.show()
 
 # After 5 trials
 for _ in range(5):
-    delta[0] = delta[0] + a * (10 - delta[0])  # Reward of 10
+    delta[0] = delta[0] + a * (8 - delta[0])  # Reward of 10
     decay = [i * (1-a) for i in decay]
-    decay[0] = decay[0] + 10  # Reward of 10
+    decay[0] = decay[0] + 8  # Reward of 10
 
 # Plot after 5 trials (Delta)
 plt.figure(figsize=(8, 6))
 bars = plt.bar(['Option A', 'Option B'], delta, color=colors)
-plt.ylim(0, 20)
-plt.ylabel(fontproperties=prop, ylabel='Expected Value', fontsize=30)
-plt.xticks(fontproperties=prop, fontsize=25)
-plt.yticks(fontproperties=prop, fontsize=22, ticks=[0, 5, 10, 15, 20])
+plt.ylim(0, 18)
+plt.ylabel(fontproperties=prop, ylabel='Expected Value', fontsize=35)
+plt.xticks(fontproperties=prop, fontsize=30)
+plt.yticks(fontproperties=prop, fontsize=30, ticks=[0, 5, 10, 15])
 sns.despine()
 plt.tight_layout()
 plt.savefig('./Figures/Delta_Expected_Values_After_5_Trials.png', dpi=600)
@@ -48,10 +49,10 @@ plt.show()
 # Plot after 5 trials (Decay)
 plt.figure(figsize=(8, 6))
 bars = plt.bar(['Option A', 'Option B'], decay, color=colors)
-plt.ylim(0, 20)
-plt.ylabel(fontproperties=prop, ylabel='Expected Value', fontsize=30)
-plt.xticks(fontproperties=prop, fontsize=25)
-plt.yticks(fontproperties=prop, fontsize=22, ticks=[0, 5, 10, 15, 20])
+plt.ylim(0, 18)
+plt.ylabel(fontproperties=prop, ylabel='Expected Value', fontsize=35)
+plt.xticks(fontproperties=prop, fontsize=30)
+plt.yticks(fontproperties=prop, fontsize=30, ticks=[0, 5, 10, 15])
 sns.despine()
 plt.tight_layout()
 plt.savefig('./Figures/Decay_Expected_Values_After_5_Trials.png', dpi=600)
@@ -116,4 +117,38 @@ plt.legend(title="Learning Rate\n        (alpha)", title_fontproperties=legend_p
 sns.despine()
 plt.tight_layout()
 plt.savefig('./Figures/Delta_Model_Learning_Rates.png', dpi=600)
+plt.show()
+
+
+# Plot three Gaussian distributions with different means and the same standard deviation
+x = np.linspace(-20, 20, 1000)
+y1 = norm.pdf(x, loc=0, scale=5)
+y2 = norm.pdf(x, loc=-10, scale=5)
+y3 = norm.pdf(x, loc=10, scale=5)
+plt.figure(figsize=(12, 6))
+sns.lineplot(x=x, y=y1, label='N(M true, SD true)', color=palette[3], linewidth=4)
+sns.lineplot(x=x, y=y2, label='N(M1, SD1)', color=palette[0], linewidth=3, linestyle='-.')
+sns.lineplot(x=x, y=y3, label='N(M2, SD2)', color=palette[2], linewidth=3, linestyle='-.')
+plt.axvline(x=0, color=palette[3], linestyle=':', linewidth=2)
+plt.axvline(x=-10, color=palette[0], linestyle=':', linewidth=2)
+plt.axvline(x=10, color=palette[2], linestyle=':', linewidth=2)
+plt.xticks(fontproperties=prop, fontsize=25, ticks=[-20, -10, 0, 10, 20])
+plt.yticks(fontproperties=prop, fontsize=25, ticks=[0, 0.04, 0.08])
+plt.legend(title_fontproperties=legend_prop, prop=legend_text_prop, loc='lower left')
+sns.despine()
+plt.tight_layout()
+plt.savefig('./Figures/Gaussian_Distributions.png', dpi=600)
+plt.show()
+
+# Plot three Gaussian distributions with different means and the same standard deviation
+plt.figure(figsize=(12, 6))
+sns.lineplot(x=x, y=y1, label='N(M1, SD1)', color=palette[0], linewidth=4, linestyle= (0, (3, 5)))
+sns.lineplot(x=x, y=y1, label='N(M2, SD2)', color=palette[2], linewidth=4, linestyle=(4, (3, 5)))
+plt.axvline(x=0, color=palette[3], linestyle=':', linewidth=2)
+plt.xticks(fontproperties=prop, fontsize=25, ticks=[-20, -10, 0, 10, 20])
+plt.yticks(fontproperties=prop, fontsize=25, ticks=[0, 0.04, 0.08])
+plt.legend(title_fontproperties=legend_prop, prop=legend_text_prop, loc='lower left')
+sns.despine()
+plt.tight_layout()
+plt.savefig('./Figures/Gaussian_Distributions_2.png', dpi=600)
 plt.show()

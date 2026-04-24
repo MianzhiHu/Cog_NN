@@ -1,0 +1,2 @@
+participant_emb_dim,hyper_hidden_dim,hidden_dim,n_epochs,lr,patience,best_val_loss,test_accuracy,test_balanced_accuracy,test_auc,model_path,history_path
+8,64,16,100,0.001,10,0.14210708013602666,0.9655172413793104,0.5802393885800909,0.8210080848913593,./Data/Results/NN_Results/ant_hyper_rnn_8pdim_64hyperh_16wh_100ep.pt,./Data/Results/NN_Results/history_ant_hyper_rnn_8pdim_64hyperh_16wh_100ep.csv
