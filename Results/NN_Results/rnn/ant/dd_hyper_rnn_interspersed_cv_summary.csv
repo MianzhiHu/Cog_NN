@@ -1,0 +1,2 @@
+num_layer,hidden_dim,lr,patience,mean_best_val_loss,mean_test_accuracy,mean_test_balanced_accuracy,mean_test_auc,sd_test_accuracy,sd_test_balanced_accuracy,sd_test_auc
+1,32,0.001,20,0.6095026578222003,0.678548231743907,0.6784979243416907,0.7350035338570173,0.0061267888344269175,0.006575763103934253,0.0028246023745878766

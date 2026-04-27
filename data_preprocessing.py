@@ -101,3 +101,45 @@ dd_data = pd.concat(dd_data, ignore_index=True)
 dd_data.to_csv('./Data/hypernetwork_data/dd_data.csv', index=False)
 print(f'Total Delayed Discounting data shape: {dd_data.shape}; number of unique participants: {dd_data["worker_id"].nunique()}')
 print(f'Delayed Discounting data contains NaN: {dd_data.isnull().values.any()}')
+
+# ======================================================================================================================
+# Columbia card task (N = 104)
+# ======================================================================================================================
+cct_data = []
+cct_col = ['EV', 'action', 'clicked_on_loss_card', 'gain_amount', 'gain_probability', 'loss_amount', 'loss_probability',
+           'num_cards', 'num_click_in_round', 'num_loss_cards', 'risk', 'worker_id']
+
+for sub_dir in os.listdir(data_dir):
+    if not sub_dir.startswith("sub-"):
+        continue
+
+    found_cct = False
+
+    for ses in possible_sessions:
+        cct_dir = os.path.join(data_dir, sub_dir, ses, "func")
+
+        if not os.path.isdir(cct_dir):
+            continue
+
+        for file in os.listdir(cct_dir):
+            if file.endswith(".tsv") and "CCTHot" in file:
+                file_path = os.path.join(cct_dir, file)
+                df = pd.read_csv(file_path, sep='\t')
+                # Remove all feedback and ITI
+                df = df[df['trial_id'] == 'stim']
+                df = df[cct_col]
+                cct_data.append(df)
+
+                found_cct = True
+                break
+
+        if found_cct:
+            break
+
+    if not found_cct:
+        print(f"Participant {sub_dir} does not have discountFix file in ses-2 or ses-1.")
+
+cct_data = pd.concat(cct_data, ignore_index=True)
+cct_data.to_csv('./Data/hypernetwork_data/cct_data.csv', index=False)
+print(f'Total Columbia card task shape: {cct_data.shape}; number of unique participants: {cct_data["worker_id"].nunique()}')
+print(f'Columbia card task contains NaN: {cct_data.isnull().values.any()}')

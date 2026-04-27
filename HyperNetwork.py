@@ -1,5 +1,6 @@
 import os
 import copy
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -57,7 +58,6 @@ class BaselineLSTM(nn.Module):
         h, _ = self.lstm(x)                  # [B, T, H]
         logits = self.output(h)             # [B, T, C]
         return logits, None
-
 
 
 class HyperRNN(nn.Module):
@@ -283,33 +283,60 @@ def sequence_nll_loss(logits, targets, mask=None):
     """
     logits:  [B, T, C]
     targets: [B, T]
-    mask:    [B, T] with 1 for valid trials, 0 for padded trials
+    mask:    [B, T] with 1 for valid choice trials, 0 for no-response/padded trials
 
-    Returns mean negative log-likelihood over valid sequence positions.
+    Returns mean cross-entropy over valid sequence positions only.
     """
     B, T, C = logits.shape
-    logits_flat = logits.reshape(B * T, C)
-    targets_flat = targets.reshape(B * T)
 
-    # F.cross_entropy is equal to log_softmax + nll_loss, and it calculates NLL
-    loss_per_item = F.cross_entropy(logits_flat, targets_flat, reduction="none")
+    targets = targets.long()
 
     if mask is None:
-        return loss_per_item.mean()
+        mask = torch.ones_like(targets, dtype=torch.bool)
+    else:
+        mask = mask.bool()
 
-    mask_flat = mask.reshape(B * T).float()
-    return (loss_per_item * mask_flat).sum() / mask_flat.sum().clamp_min(1.0)
+    # Valid class labels must be 0, 1, ..., C-1.
+    valid_targets = (targets >= 0) & (targets < C)
+
+    # Final mask ignores: no-response trials, padded trials, validation and test trials
+    final_mask = mask & valid_targets
+
+    # Replace invalid targets before loss.
+    targets_safe = targets.clone()
+    targets_safe[~final_mask] = -100
+
+    logits_flat = logits.reshape(B * T, C)
+    targets_flat = targets_safe.reshape(B * T)
+
+    loss_per_item = F.cross_entropy(logits_flat, targets_flat, ignore_index=-100, reduction="none")
+    final_mask_flat = final_mask.reshape(B * T).float()
+
+    return (loss_per_item * final_mask_flat).sum() / final_mask_flat.sum().clamp_min(1.0)
 
 
 def sequence_accuracy(logits, targets, mask=None):
-    preds = logits.argmax(dim=-1)  # [B, T]
-    correct = (preds == targets).float()
+    """
+    logits:  [B, T, C]
+    targets: [B, T]
+    mask:    [B, T]
+    """
+    B, T, C = logits.shape
+
+    targets = targets.long()
 
     if mask is None:
-        return correct.mean().item()
+        mask = torch.ones_like(targets, dtype=torch.bool)
+    else:
+        mask = mask.bool()
 
-    correct = correct * mask.float()
-    return (correct.sum() / mask.sum().clamp_min(1.0)).item()
+    valid_targets = (targets >= 0) & (targets < C)
+    final_mask = mask & valid_targets
+
+    preds = logits.argmax(dim=-1)
+    correct = (preds == targets) & final_mask
+
+    return (correct.sum().float() / final_mask.sum().clamp_min(1).float()).item()
 
 
 def train_one_epoch(model, dataloader, optimizer, device, model_type="baseline",
@@ -539,9 +566,18 @@ class BehavioralDataset(Dataset):
             x_vals = group[x_var].values.astype("float32")
             y_vals = group[y_var].values.astype("int64")
 
+            # Set up the mask
+            if "loss_mask" in group.columns:
+                mask_vals = group["loss_mask"].values.astype("bool")
+            elif "choice_mask" in group.columns:
+                mask_vals = group["choice_mask"].values.astype("bool")
+            else:
+                mask_vals = np.ones(len(group), dtype=bool)
+
             self.data.append({
                 "x": torch.tensor(x_vals, dtype=torch.float32),
                 "y": torch.tensor(y_vals, dtype=torch.long),
+                "mask": torch.tensor(mask_vals, dtype=torch.bool),
                 "participant_id": torch.tensor(p_id, dtype=torch.long),
             })
 
@@ -550,7 +586,6 @@ class BehavioralDataset(Dataset):
 
     def __getitem__(self, idx):
         return self.data[idx]
-
 
 def split_by_participant_trials(df, train_prop=0.70, val_prop=0.15):
     train_list, val_list, test_list = [], [], []
@@ -573,32 +608,57 @@ def split_by_participant_trials(df, train_prop=0.70, val_prop=0.15):
     )
 
 
+def make_full_sequence_split_df(df, test_fold, val_fold, split):
+    """
+    Keep the full sequence for every participant.
+
+    The model sees all trials in chronological order,
+    but loss is calculated only on trials where loss_mask == True.
+    """
+    df = df.copy()
+    df = df.sort_values(["participant_id", "trial"]).reset_index(drop=True)
+
+    if split == "train":
+        split_mask = (
+            (df["cv_fold"] != test_fold) &
+            (df["cv_fold"] != val_fold)
+        )
+    elif split == "val":
+        split_mask = df["cv_fold"] == val_fold
+    elif test_fold is not None and split == "test":
+        split_mask = df["cv_fold"] == test_fold
+    else:
+        raise ValueError("split must be 'train', 'val', or 'test'")
+
+    # Combine split mask with valid-choice mask.
+    # This means no-response trials still update the RNN hidden state,
+    # but they do not contribute to the loss.
+    if "choice_mask" in df.columns:
+        df["loss_mask"] = split_mask & df["choice_mask"].astype(bool)
+    else:
+        df["loss_mask"] = split_mask
+
+    return df
+
 def behavioral_collate_fn(batch):
     x_list = [item["x"] for item in batch]
     y_list = [item["y"] for item in batch]
+    mask_list = [item["mask"] for item in batch]
     participant_ids = torch.stack([item["participant_id"] for item in batch])
 
     lengths = torch.tensor([x.shape[0] for x in x_list])
 
-    x_padded = pad_sequence(
-        x_list,
-        batch_first=True,
-        padding_value=0.0
-    )
+    x_padded = pad_sequence(x_list, batch_first=True, padding_value=0.0)
+    y_padded = pad_sequence(y_list, batch_first=True, padding_value=-1)
 
-    y_padded = pad_sequence(
-        y_list,
-        batch_first=True,
-        padding_value=0
-    )
-
-    mask = torch.arange(x_padded.size(1))[None, :] < lengths[:, None]
+    # Padded trials should not count in loss
+    mask_padded = pad_sequence(mask_list, batch_first=True, padding_value=0)
 
     return {
         "x": x_padded,                      # [B, T_max, D]
         "y": y_padded,                      # [B, T_max]
         "participant_id": participant_ids,  # [B]
-        "mask": mask                        # [B, T_max]
+        "mask": mask_padded.bool()          # [B, T_max]
     }
 
 
@@ -624,3 +684,21 @@ def collect_predictions(model, loader, device, threshold=0.5):
     y_pred = (p_correct >= threshold).astype(int)
 
     return y_true, y_pred, p_correct
+
+
+def add_interspersed_folds(df, n_folds=5, seed=123):
+    df = df.copy()
+    df["cv_fold"] = -1
+
+    rng = np.random.default_rng(seed)
+
+    for pid, sub_df in df.groupby("participant_id"):
+        idx = sub_df.index.to_numpy().copy()
+        rng.shuffle(idx)
+
+        fold_ids = np.arange(len(idx)) % n_folds
+        rng.shuffle(fold_ids)
+
+        df.loc[idx, "cv_fold"] = fold_ids
+
+    return df

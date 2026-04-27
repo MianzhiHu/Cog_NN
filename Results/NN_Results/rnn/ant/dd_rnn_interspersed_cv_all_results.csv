@@ -1,0 +1,6 @@
+model_name,test_fold,val_fold,num_layer,hidden_dim,n_epochs,lr,patience,best_val_loss,test_accuracy,test_balanced_accuracy,test_auc,n_pred_0,n_pred_1,model_path
+HyperRNN,0,1,1,32,400,0.001,20,0.6139095255306789,0.682383197599657,0.6824473792515506,0.7360826939471441,1142,1191,./Results/NN_Results/rnn/dd/dd_rnn_fold0_1layer_32hidden.pt
+HyperRNN,1,2,1,32,400,0.001,20,0.5995896714074271,0.6789383561643836,0.6789373878024341,0.7390056464375692,1171,1165,./Results/NN_Results/rnn/dd/dd_rnn_fold1_1layer_32hidden.pt
+HyperRNN,2,3,1,32,400,0.001,20,0.6141864316804069,0.674061433447099,0.6744783474887281,0.7327295445807557,1238,1106,./Results/NN_Results/rnn/dd/dd_rnn_fold2_1layer_32hidden.pt
+HyperRNN,3,4,1,32,400,0.001,20,0.6083013159888131,0.6862660944206008,0.6867080768306435,0.7352762834377831,1174,1156,./Results/NN_Results/rnn/dd/dd_rnn_fold3_1layer_32hidden.pt
+HyperRNN,4,0,1,32,400,0.001,20,0.6115263445036752,0.6710920770877944,0.669918430335097,0.7319235008818342,1251,1084,./Results/NN_Results/rnn/dd/dd_rnn_fold4_1layer_32hidden.pt
