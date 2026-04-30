@@ -1,0 +1,2 @@
+participant_emb_dim,hyper_hidden_dim,hidden_dim,lr,patience,mean_best_val_loss,mean_test_accuracy,mean_test_balanced_accuracy,mean_test_auc,sd_test_accuracy,sd_test_balanced_accuracy,sd_test_auc
+2.0,8.0,4.0,0.005,50.0,0.3960362809044974,0.8205676519165562,0.6451738166312433,0.8171072874185338,0.007689546892495394,0.014583582368939746,0.009314978757458027

@@ -143,3 +143,92 @@ cct_data = pd.concat(cct_data, ignore_index=True)
 cct_data.to_csv('./Data/hypernetwork_data/cct_data.csv', index=False)
 print(f'Total Columbia card task shape: {cct_data.shape}; number of unique participants: {cct_data["worker_id"].nunique()}')
 print(f'Columbia card task contains NaN: {cct_data.isnull().values.any()}')
+
+# ======================================================================================================================
+# Stroop Task (N = 102)
+# ======================================================================================================================
+stroop_data = []
+stroop_col = ['correct', 'stim_color', 'stim_word', 'key_press', 'trial_type', 'worker_id']
+
+for sub_dir in os.listdir(data_dir):
+    if not sub_dir.startswith("sub-"):
+        continue
+
+    found_stroop = False
+
+    for ses in possible_sessions:
+        stroop_dir = os.path.join(data_dir, sub_dir, ses, "func")
+
+        if not os.path.isdir(stroop_dir):
+            continue
+
+        for file in os.listdir(stroop_dir):
+            if file.endswith(".tsv") and "stroop" in file:
+                file_path = os.path.join(stroop_dir, file)
+                df = pd.read_csv(file_path, sep='\t')
+                df = df[stroop_col]
+                stroop_data.append(df)
+
+                found_stroop = True
+                break
+
+        if found_stroop:
+            break
+
+    if not found_stroop:
+        print(f"Participant {sub_dir} does not have stroop file in ses-2 or ses-1.")
+
+stroop_data = pd.concat(stroop_data, ignore_index=True)
+stroop_data.to_csv('./Data/hypernetwork_data/stroop_data.csv', index=False)
+print(f'Total Columbia card task shape: {stroop_data.shape}; number of unique participants: {stroop_data["worker_id"].nunique()}')
+print(f'Columbia card task contains NaN: {stroop_data.isnull().values.any()}')
+
+
+# ======================================================================================================================
+# Motor selective stop-signal task (N = 102)
+# ======================================================================================================================
+motor_data = []
+motor_col = ['SS_delay', 'correct', 'trial_condition', 'worker_id', 'correct_response']
+
+for sub_dir in os.listdir(data_dir):
+    if not sub_dir.startswith("sub-"):
+        continue
+
+    found_motor = False
+
+    for ses in possible_sessions:
+        motor_dir = os.path.join(data_dir, sub_dir, ses, "func")
+
+        if not os.path.isdir(motor_dir):
+            continue
+
+        for file in os.listdir(motor_dir):
+            if file.endswith(".tsv") and "motorSelectiveStop" in file:
+                file_path = os.path.join(motor_dir, file)
+                df = pd.read_csv(file_path, sep='\t')
+                df['trial_condition'] = df['trial_type'].replace({'crit_stop_success': 'crit_stop',
+                                                                  'crit_stop_failure': 'crit_stop'})
+                df['expected_stopped'] = df['trial_condition'].eq('crit_stop')
+                df['correct'] = np.where(
+                    df['expected_stopped'],
+                    # On crit_stop trials, correct means successfully withholding
+                    df['stopped'] == True,
+                    # On all other trials, correct means responding with the correct key
+                    (df['stopped'] == False) & (df['key_press'] == df['correct_response'])
+                ).astype(int)
+                df = df[motor_col]
+                motor_data.append(df)
+
+                found_motor = True
+                break
+
+        if found_motor:
+            break
+
+    if not found_motor:
+        print(f"Participant {sub_dir} does not have motor file in ses-2 or ses-1.")
+
+motor_data = pd.concat(motor_data, ignore_index=True)
+motor_data.to_csv('./Data/hypernetwork_data/motor_data.csv', index=False)
+print(f'Total Motor selective stop-signal task shape: {motor_data.shape}; number of unique participants: {motor_data["worker_id"].nunique()}')
+print(f'Motor selective stop-signal task contains NaN: {motor_data.isnull().values.any()}')

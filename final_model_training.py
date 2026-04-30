@@ -16,16 +16,26 @@ from statsmodels.stats.multitest import multipletests
 from scipy.linalg import orthogonal_procrustes
 from sklearn.metrics import pairwise_distances
 
-# Read the model results
+# Read the hypernetwork model results
 ant_hyper_results = pd.read_csv('./Results/NN_Results/hyper_rnn/ant/ant_hyper_rnn_interspersed_cv_summary.csv')
-ant_rnn_results = pd.read_csv('./Results/NN_Results/rnn/ant/ant_rnn_interspersed_cv_summary.csv')
+cct_hyper_results = pd.read_csv('./Results/NN_Results/hyper_rnn/cct/cct_hyper_rnn_interspersed_cv_summary.csv')
 dd_hyper_results = pd.read_csv('./Results/NN_Results/hyper_rnn/dd/dd_hyper_rnn_interspersed_cv_summary.csv')
+stroop_hyper_results = pd.read_csv('./Results/NN_Results/hyper_rnn/stroop/stroop_hyper_rnn_interspersed_cv_summary.csv')
+
+# Read the regular RNN results
+ant_rnn_results = pd.read_csv('./Results/NN_Results/rnn/ant/ant_rnn_interspersed_cv_summary.csv')
+cct_rnn_results = pd.read_csv('./Results/NN_Results/rnn/cct/cct_rnn_interspersed_cv_summary.csv')
 dd_rnn_results = pd.read_csv('./Results/NN_Results/rnn/dd/dd_rnn_interspersed_cv_summary.csv')
+stroop_rnn_results = pd.read_csv('./Results/NN_Results/rnn/stroop/stroop_rnn_interspersed_cv_summary.csv')
 
 # Sort by evaluation metrics
-metric = ['mean_best_val_loss'] # mean_best_val_loss
-ant_subj_embeddings = ant_hyper_results.groupby('participant_emb_dim')[metric].mean()
-dd_subj_embeddings = dd_hyper_results.groupby('participant_emb_dim')[metric].mean()
+metric = ['mean_test_auc'] # mean_best_val_loss
+task_names = ['ANT', 'CCT', 'DD', 'Stroop']
+i = 0
+for df in [ant_hyper_results, cct_hyper_results, dd_hyper_results, stroop_hyper_results]:
+    print(f'{task_names[i]}:')
+    print(df.groupby('participant_emb_dim')[metric].mean())
+    i += 1
 
 # Hyperparameter columns shared by both summary files
 config_cols = [
@@ -98,13 +108,15 @@ def build_joint_config_results(results_list, config_cols, task_names=None, rank_
 
     return joint
 
-joint_results = build_joint_config_results([ant_hyper_results, dd_hyper_results], config_cols=config_cols,
-                                           task_names=["ant", "dd"])
+joint_results = build_joint_config_results([ant_hyper_results, dd_hyper_results, cct_hyper_results,
+                                            stroop_hyper_results], config_cols, task_names)
 
 # Load participant embeddings
 ant_embeddings = pd.DataFrame(np.load('./Results/Final_Models/ant_hyper_rnn_final_participant_embeddings.npy'))
 dd_embeddings = pd.DataFrame(np.load('./Results/Final_Models/dd_hyper_rnn_final_participant_embeddings.npy'))
 cct_embeddings = pd.DataFrame(np.load('./Results/Final_Models/cct_hyper_rnn_final_participant_embeddings.npy'))
+stroop_embeddings = pd.DataFrame(np.load('./Results/Final_Models/stroop_hyper_rnn_final_participant_embeddings.npy'))
+motor_embeddings = pd.DataFrame(np.load('./Results/Final_Models/motor_hyper_rnn_final_participant_embeddings.npy'))
 
 # Add participant IDs to the embeddings
 ant_embeddings['participant_id'] = ant_embeddings.index

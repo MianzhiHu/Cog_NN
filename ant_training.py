@@ -325,8 +325,8 @@ if __name__ == "__main__":
     # ==================================================================================================================
     # Train the final model after comparing across all the CV results
     # ==================================================================================================================
-    final_participant_emb_dim = 8
-    final_hyper_hidden_dim = 32
+    final_participant_emb_dim = 2
+    final_hyper_hidden_dim = 16
     final_hidden_dim = 8
 
     save_dir = './Results/Final_Models/'
